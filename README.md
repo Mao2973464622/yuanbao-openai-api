@@ -50,7 +50,38 @@
 
 ---
 
-## 三、环境要求
+## 三、架构与原理
+
+本项目本质是**网页协议反代 + 中间层**：把元宝网页端（模拟浏览器，含 QIMEI 动态签名）包装成 OpenAI 兼容接口。
+
+```
+你的客户端 (OpenAI 格式)
+        ↓
+   ⚙️ 中间层 yuanbao-server.js   ← 本地部署 (Node, 零依赖)
+        ↓  翻译成元宝网页协议
+   元宝网页端 (模拟浏览器 + QIMEI 签名)
+        ↓
+   元宝模型 (hy4 / deepseek / 生图...)
+        ↑
+   中间层抓取结果 → 翻译回 OpenAI 格式 → 客户端
+```
+
+> **关键**：元宝**没有公开 API**，所以用**账号凭据（hy_user + hy_token）+ 本地部署 + AI 模型驱动**。
+> 中间层（AI 模型）控制调用哪个模型、如何调元宝网页；产物（对话/生图）都落在**你的元宝网页账号**里。
+
+### 手绘风架构图
+
+![整体架构](docs/images/architecture.png)
+
+| 主题 | 图解 | 说明 |
+|---|---|---|
+| 整体架构 | ![架构](docs/images/architecture.png) | 机器人=中间层，左边客户端，右边元宝网页端 |
+| 中间层翻译 | ![中间层](docs/images/middleware.png) | 机器人当翻译官，双向传送请求与结果 |
+| 账号凭据 | ![凭据](docs/images/credentials.png) | 机器人捧钥匙+通行证=登录态（hy_user/hy_token） |
+| 产物归属 | ![产物](docs/images/outputs.png) | 机器人指屏幕=对话/生图都在元宝账号里 |
+
+---
+## 四、环境要求
 
 - **Node.js ≥ 20**（用到原生 `fetch` / `WebSocket` / `TextDecoder`；实测 Node 24 正常）
 - 无需任何 npm 依赖
@@ -58,7 +89,7 @@
 
 ---
 
-## 四、快速开始
+## 五、快速开始
 
 ### 1. 获取凭据（二选一）
 
@@ -110,7 +141,7 @@ bash start.sh
 
 ---
 
-## 五、生图用法
+## 六、生图用法
 
 ```bash
 # 文生图（一次 4 张，自动下载到 images/）
@@ -139,7 +170,7 @@ curl http://127.0.0.1:8788/v1/images/generations \
 
 ---
 
-## 六、可用模型
+## 七、可用模型
 
 | 模型名 | 说明 |
 |---|---|
@@ -151,7 +182,7 @@ curl http://127.0.0.1:8788/v1/images/generations \
 
 ---
 
-## 七、环境变量
+## 八、环境变量
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
@@ -165,7 +196,7 @@ curl http://127.0.0.1:8788/v1/images/generations \
 
 ---
 
-## 八、文件清单
+## 九、文件清单
 
 | 文件 | 作用 |
 |---|---|
@@ -185,7 +216,7 @@ curl http://127.0.0.1:8788/v1/images/generations \
 
 ---
 
-## 九、常见问题
+## 十、常见问题
 
 | 现象 | 原因与解决 |
 |---|---|
@@ -198,7 +229,7 @@ curl http://127.0.0.1:8788/v1/images/generations \
 
 ---
 
-## 十、安全与合规
+## 十一、安全与合规
 
 - `yuanbao-cookie.json` 等于你的元宝账号登录态，**严禁**提交 git / 分享 / 外传。
 - 本项目仅供技术研究与学习，请勿商用；使用即视为自行承担账号风险。
@@ -206,7 +237,7 @@ curl http://127.0.0.1:8788/v1/images/generations \
 
 ---
 
-## 十一、致谢
+## 十二、致谢
 
 感谢 [youyao666](https://github.com/youyao666/yuanbao-pure-protocol)（本项目核心实现）、以及 [juzeon](https://github.com/juzeon/yuanbao-chat2api)、[10020099](https://github.com/10020099/yuanbao2api) 在元宝协议逆向方向的先行探索。
 
