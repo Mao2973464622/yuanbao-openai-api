@@ -120,6 +120,16 @@ curl http://127.0.0.1:8788/v1/images/generations \
   -d '{"prompt":"画一只可爱的小狗","size":"1024x1024"}'
 ```
 
+**生图双模式**（`start.sh` 切换，持久化）：
+| 模式 | 命令 | 行为 |
+|---|---|---|
+| 预览（默认） | `bash start.sh preview` | 只返回图片 URL，客户端/对话里直接渲染，不落盘 |
+| 保存 | `bash start.sh save` | 自动下载到 `/sdcard/Download/yuanbao-img/`，响应多带 `local_path` |
+
+> 服务端也支持环境变量 `YUANBAO_IMG_SAVE=1`（保存）/ `0`（预览），`YUANBAO_IMG_DIR` 自定义保存目录。
+> `local_path` 是服务端本机路径，方便在文件管理器直接找到图；`url` 始终可用，客户端用 url 渲染即可。
+
+
 ---
 
 ## 六、可用模型
@@ -142,6 +152,8 @@ curl http://127.0.0.1:8788/v1/images/generations \
 | `YUANBAO_API_KEY` | 空 | 设置后校验 `Authorization: Bearer <key>` |
 | `YUANBAO_TOOLS` | 开 | `off` 关闭工具调用模拟 |
 | `YUANBAO_WATERMARK_FREE` | 开 | `off` 关闭生图无水印换链 |
+| `YUANBAO_IMG_SAVE` | 关 | `1` 生图自动下载到本地（配合 YUANBAO_IMG_DIR） |
+| `YUANBAO_IMG_DIR` | `/sdcard/Download/yuanbao-img` | 生图保存目录 |
 | `YUANBAO_NO_CLARIFY` | 关 | `on` 让搜索模式不反问 |
 
 ---
