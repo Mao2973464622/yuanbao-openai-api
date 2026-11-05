@@ -1,0 +1,19 @@
+# ===== 敏感凭据与设备指纹，严禁入库 =====
+yuanbao-cookie.json
+yuanbao-anon-cookie.json
+qimei-storage.json
+
+# ===== 运行时产物 =====
+server_pure.log
+server_pure.pid
+*.pid
+
+# ===== 生图输出 =====
+images/
+
+# ===== 中间产物 =====
+qimei-all-*.json
+
+# ===== 系统 =====
+.DS_Store
+node_modules/
