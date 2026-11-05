@@ -1,6 +1,6 @@
 // 元宝 OpenAI 兼容服务：零依赖纯 Node，把元宝网页版变成 http://127.0.0.1:8788/v1
 // 端点: /v1/models | /v1/chat/completions(流式/非流式) | /v1/images/generations | /v1/images/edits | /healthz
-// 环境变量: YUANBAO_PORT(默认8788) YUANBAO_API_KEY(可选，设置后校验 Bearer)
+// 环境变量: YUANBAO_PORT(默认8788) YUANBAO_API_KEY(可选，设置后校验 Bearer) YUANBAO_IMG_SAVE(可选，=1 生图自动下载到手机存储) YUANBAO_IMG_DIR(可选，默认 /sdcard/Download/yuanbao-img)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -14,6 +14,9 @@ const API_KEY = process.env.YUANBAO_API_KEY || '';
 const TOOLS_ENABLED = !/^off|0|false|no$/i.test(process.env.YUANBAO_TOOLS || '');
 // 无水印开关：YUANBAO_WATERMARK_FREE=off 关闭（生图后从会话详情换 originUrl(h0) 原始版）
 const WM_FREE_ENABLED = !/^off|0|false|no$/i.test(process.env.YUANBAO_WATERMARK_FREE || '');
+// 生图落盘开关：YUANBAO_IMG_SAVE=1 时，生图后自动下载到 YUANBAO_IMG_DIR(默认 /sdcard/Download/yuanbao-img)
+const IMG_SAVE_ENABLED = /^1|true|yes|on$/i.test(process.env.YUANBAO_IMG_SAVE || '');
+const IMG_DIR = process.env.YUANBAO_IMG_DIR || '/sdcard/Download/yuanbao-img';
 const BASE = 'https://yuanbao.tencent.com';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
 
@@ -521,6 +524,25 @@ async function handleImageGen(req, res, body) {
     }));
   } else {
     data = data.map(u => ({ url: u }));
+  }
+  // ---- 生图落盘：下载到手机存储，附带本地路径（供文件管理器直接看图） ----
+  if (IMG_SAVE_ENABLED) {
+    try {
+      if (!fs.existsSync(IMG_DIR)) fs.mkdirSync(IMG_DIR, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+      data = await Promise.all(data.map(async (item, idx) => {
+        const u = item.url || '';
+        let ext = '.png';
+        try { const r0 = await fetch(u, { method: 'HEAD' }); const ct = (r0.headers.get('content-type') || '').toLowerCase(); if (ct.includes('jpeg') || ct.includes('jpg')) ext = '.jpg'; if (ct.includes('webp')) ext = '.webp'; } catch {}
+        const fn = path.join(IMG_DIR, `yuanbao-img-${stamp}-${idx + 1}${ext}`);
+        const r = await fetch(u);
+        const buf = Buffer.from(await r.arrayBuffer());
+        fs.writeFileSync(fn, buf);
+        return { ...item, local_path: fn, saved: true };
+      }));
+    } catch (e) {
+      // 落盘失败不影响主流程，仍返回 URL
+    }
   }
   json(res, 200, { created: Math.floor(Date.now() / 1000), data });
 }
