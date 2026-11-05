@@ -10,6 +10,8 @@ server_pure.pid
 
 # ===== 生图输出 =====
 images/
+# 但 docs/images/ 是仓库文档图，必须入库（例外）
+!docs/images/
 
 # ===== 中间产物 =====
 qimei-all-*.json
