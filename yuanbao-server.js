@@ -70,9 +70,9 @@ function signHeaders() {
   return { 'x-uskey': s['X-Uskey'], 'x-bus-params-md5': s['X-Bus-Params-Md5'], 'x-timestamp': s['X-Timestamp'] };
 }
 
-async function createConversation() {
+async function createConversation(agentId) {
   const res = await fetch(`${BASE}/api/user/agent/conversation/create`, {
-    method: 'POST', headers: baseHeaders(signHeaders()), body: JSON.stringify({ agentId: cookie.agentId }),
+    method: 'POST', headers: baseHeaders(signHeaders()), body: JSON.stringify({ agentId: agentId || cookie.agentId }),
   });
   if (!res.ok) throw new Error(`create HTTP ${res.status}: ${(await res.text()).slice(0, 150)}`);
   const cid = (await res.json())?.id;
@@ -300,6 +300,43 @@ function json(res, code, obj) {
   res.end(body);
 }
 
+
+// ---------------- 官方智能体清单（元宝智能体广场） ----------------
+let AGENTS_CACHE = null;
+let AGENTS_CACHE_TS = 0;
+const AGENTS_TTL = 30 * 60 * 1000; // 30分钟缓存
+async function fetchOfficialAgents(force) {
+  if (!force && AGENTS_CACHE && Date.now() - AGENTS_CACHE_TS < AGENTS_TTL) return AGENTS_CACHE;
+  const res = await fetch(`${BASE}/api/agent/v3/list`, {
+    method: 'POST', headers: baseHeaders(signHeaders()), body: JSON.stringify({}),
+  });
+  if (!res.ok) throw new Error(`agents HTTP ${res.status}`);
+  const d = await res.json();
+  const agents = (d.agents || []).map(a => ({
+    id: a.agentId, name: a.name, description: a.description || '',
+    icon: a.icon || '', tags: a.tags || [], source: a.source || '',
+    official: !!a.isOfficial || a.source === 'official',
+  }));
+  AGENTS_CACHE = { agents, total: agents.length };
+  AGENTS_CACHE_TS = Date.now();
+  return AGENTS_CACHE;
+}
+async function handleAgents(req, res) {
+  try {
+    const force = /force=1|refresh/.test(req.url);
+    const data = await fetchOfficialAgents(force);
+    return json(res, 200, {
+      object: 'list',
+      data: data.agents,
+      total: data.total,
+      tags: (data.tags || []),
+      cached: !force,
+    });
+  } catch (e) {
+    return json(res, 500, { error: { message: '获取官方智能体失败: ' + String(e.message || e) } });
+  }
+}
+
 async function handleModels(req, res) {
   const ids = [...Object.keys(MODEL_ALIAS), ...Object.keys(MODEL_ALIAS).map(id => id + SEARCH_SUFFIX)];
   json(res, 200, {
@@ -354,9 +391,11 @@ async function handleChat(req, res, body) {
   const noClarify = /^on|1|true|yes$/i.test(process.env.YUANBAO_NO_CLARIFY || '');
   // 显式会话透传：客户端传 conversation_id 则强制复用该元宝会话（持续对话）
   const explicitCid = body.conversation_id || body.conversationId || body.session_id || null;
+  const useAgentId = body.agent_id || body.agentId || null;   // 官方智能体：指定则用该 agent 建会话
   const reuse = explicitCid
     ? { cid: explicitCid, reused: true, explicit: true }
-    : takeConversation(body.messages, body.user);
+    : (useAgentId ? { cid: null, reused: false, agentId: useAgentId }
+       : takeConversation(body.messages, body.user));
   let prompt = reuse.reused
     ? lastUserContent(body.messages)                       // 复用会话：只发最新一条（历史在元宝侧）
     : messagesToPrompt(body.messages || []);               // 新会话：全量拼接
@@ -368,7 +407,7 @@ async function handleChat(req, res, body) {
   const id = 'chatcmpl-' + crypto.randomBytes(12).toString('hex');
   const created = Math.floor(Date.now() / 1000);
 
-  const cid = reuse.reused ? reuse.cid : await createConversation();
+  const cid = reuse.reused ? reuse.cid : await createConversation(reuse.agentId);
   const convIdOut = cid;                                         // 返回给客户端的会话ID（持续对话）
   // 搜索模式走深度研究技能（协议级 applicationIdList，浏览器抓包实证），仅首轮注入
   const upstream = await yuanbaoChat(cid, prompt, model.chatModelId, '', [],
@@ -800,6 +839,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, h38: signer.getH38(), hy_user: cookie.hy_user });
     }
     if (req.method === 'GET' && req.url === '/v1/models') return handleModels(req, res);
+    if (req.method === 'GET' && req.url.startsWith('/v1/agents')) return handleAgents(req, res);
 
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {
       const body = JSON.parse((await readBody(req)).toString('utf8') || '{}');
