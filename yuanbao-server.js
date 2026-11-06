@@ -116,6 +116,7 @@ async function readSse(res, onEvent) {
   const dump = process.env.YUANBAO_DUMP_SSE ? fs.createWriteStream(path.join(__dirname, process.env.YUANBAO_DUMP_SSE)) : null;
   const evCount = {};
   let buf = '', text = '', think = '';
+  const reasoningSeen = new Set();
   const images = [], usage = {}, citations = [], clarifies = [];
   for await (const chunk of res.body) {
     buf += dec.decode(chunk, { stream: true });
@@ -141,7 +142,14 @@ async function readSse(res, onEvent) {
         for (const c of ev.contents) {
           if (c.type === 'think' && c.text) { think += c.text; onEvent?.('reasoning', c.text); }
           if (c.type === 'text' && c.text) { const t = cleanRich(c.text); text += t; onEvent?.('content', t); }
-          if (c.type === 'toolCall' && Array.isArray(c.items)) {
+          if (c.type === 'toolCall') {
+            // 思考/处理中状态：进行中工具调用标题作为 reasoning_content 实时透传（对面正在…）
+            if (c.status === 0 && c.title && !reasoningSeen.has(c.title)) {
+              reasoningSeen.add(c.title);
+              think += (think ? '\n' : '') + c.title;
+              onEvent?.('reasoning', c.title);
+            }
+            if (Array.isArray(c.items)) {
             // 深度研究反问问卷（ask_user_question → items[].type=clarify）
             if (c.tcname === 'ask_user_question') {
               for (const item of c.items) {
@@ -156,6 +164,7 @@ async function readSse(res, onEvent) {
             }
             for (const item of c.items) for (const m of (item.multimedias || []))
               if (m.mediaType === 'image' && m.url) images.push(m.url);
+            }
           }
         }
       } else if (ev.type === 'replace' && ev.replace?.assetId && Array.isArray(ev.replace.multimedias)) {
@@ -301,6 +310,32 @@ function json(res, code, obj) {
 }
 
 
+
+// ---------------- 内置应用能力（application_id 注入表） ----------------
+const APPLICATION_IDS = {
+  'application_id_ai_coding': 'AI 编程',
+  'application_id_ai_reading': 'AI 阅读',
+  'application_id_ai_answering': 'AI 解题',
+  'application_id_ai_writing': 'AI 写作',
+  'application_id_ai_image': 'AI 绘画',
+  'application_id_wa_ai_image': 'AI 绘画(WebApp)',
+  'application_id_voice_recorder': 'AI 录音',
+  'application_id_web_search': '联网搜索',
+  'application_id_knowledge_search': '搜资料库',
+  'application_id_working_agent': '工作智能体',
+  'application_id_teaching_assistant': '教学助手',
+  'application_id_data_analysis': '数据分析',
+  'application_id_investment_analysis': '投资分析',
+  'application_id_personal_plan': '个人计划',
+  'application_id_ppt_generation': 'PPT 生成',
+  'application_id_professional_writing': '专业写作',
+  'application_id_deep_research': '深度研究',
+};
+function handleApplicationIds(req, res) {
+  const data = Object.entries(APPLICATION_IDS).map(([id, name]) => ({ id, name }));
+  return json(res, 200, { object: 'list', data, total: data.length });
+}
+
 // ---------------- 官方智能体清单（元宝智能体广场） ----------------
 let AGENTS_CACHE = null;
 let AGENTS_CACHE_TS = 0;
@@ -409,9 +444,13 @@ async function handleChat(req, res, body) {
 
   const cid = reuse.reused ? reuse.cid : await createConversation(reuse.agentId);
   const convIdOut = cid;                                         // 返回给客户端的会话ID（持续对话）
-  // 搜索模式走深度研究技能（协议级 applicationIdList，浏览器抓包实证），仅首轮注入
-  const upstream = await yuanbaoChat(cid, prompt, model.chatModelId, '', [],
-    model.search && !reuse.reused ? ['application_id_deep_research'] : undefined);
+  // 应用能力注入：优先用客户端显式 application_id_list/application_id，
+  // 其次搜索模式走深度研究技能（协议级 applicationIdList，浏览器抓包实证），仅首轮注入
+  const appIds = Array.isArray(body.application_id_list) ? body.application_id_list
+    : (body.application_id ? [body.application_id] : []);
+  const appIdList = appIds.length ? appIds
+    : (model.search && !reuse.reused ? ['application_id_deep_research'] : undefined);
+  const upstream = await yuanbaoChat(cid, prompt, model.chatModelId, '', [], appIdList);
 
   if (!stream) {
     const { text, think, usage, citations, clarifies } = await readSse(upstream);
@@ -840,6 +879,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && req.url === '/v1/models') return handleModels(req, res);
     if (req.method === 'GET' && req.url.startsWith('/v1/agents')) return handleAgents(req, res);
+    if (req.method === 'GET' && req.url.startsWith('/v1/application-ids')) return handleApplicationIds(req, res);
 
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {
       const body = JSON.parse((await readBody(req)).toString('utf8') || '{}');
