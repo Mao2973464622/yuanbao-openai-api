@@ -352,7 +352,11 @@ async function handleChat(req, res, body) {
   const model = resolveModel(body.model);
   const hasTools = TOOLS_ENABLED && Array.isArray(body.tools) && body.tools.length > 0;
   const noClarify = /^on|1|true|yes$/i.test(process.env.YUANBAO_NO_CLARIFY || '');
-  const reuse = takeConversation(body.messages, body.user);
+  // 显式会话透传：客户端传 conversation_id 则强制复用该元宝会话（持续对话）
+  const explicitCid = body.conversation_id || body.conversationId || body.session_id || null;
+  const reuse = explicitCid
+    ? { cid: explicitCid, reused: true, explicit: true }
+    : takeConversation(body.messages, body.user);
   let prompt = reuse.reused
     ? lastUserContent(body.messages)                       // 复用会话：只发最新一条（历史在元宝侧）
     : messagesToPrompt(body.messages || []);               // 新会话：全量拼接
@@ -365,6 +369,7 @@ async function handleChat(req, res, body) {
   const created = Math.floor(Date.now() / 1000);
 
   const cid = reuse.reused ? reuse.cid : await createConversation();
+  const convIdOut = cid;                                         // 返回给客户端的会话ID（持续对话）
   // 搜索模式走深度研究技能（协议级 applicationIdList，浏览器抓包实证），仅首轮注入
   const upstream = await yuanbaoChat(cid, prompt, model.chatModelId, '', [],
     model.search && !reuse.reused ? ['application_id_deep_research'] : undefined);
@@ -376,6 +381,7 @@ async function handleChat(req, res, body) {
       const quiz = formatClarifies(clarifies);
       saveConversation(body.messages, body.user, cid, { role: 'assistant', content: quiz });
       return json(res, 200, {
+        conversation_id: convIdOut,
         id, object: 'chat.completion', created, model: body.model,
         choices: [{
           index: 0,
@@ -389,6 +395,7 @@ async function handleChat(req, res, body) {
     if (tc) {
       saveConversation(body.messages, body.user, cid, { role: 'assistant', content: null, tool_calls: [{ type: 'function', function: tc }] });
       return json(res, 200, {
+        conversation_id: convIdOut,
         id, object: 'chat.completion', created, model: body.model,
         choices: [{
           index: 0,
@@ -407,6 +414,7 @@ async function handleChat(req, res, body) {
     }
     saveConversation(body.messages, body.user, cid, { role: 'assistant', content });
     return json(res, 200, {
+      conversation_id: convIdOut,
       id, object: 'chat.completion', created, model: body.model,
       choices: [{
         index: 0,
@@ -440,7 +448,7 @@ async function handleChat(req, res, body) {
     res.write('data: [DONE]\n\n');
     res.end();
   };
-  sendChunk({ role: 'assistant' });
+  sendChunk({ role: 'assistant', conversation_id: convIdOut });
 
   if (hasTools) {
     const { text, usage } = await readSse(upstream);
@@ -515,7 +523,8 @@ async function handleImageGen(req, res, body) {
   const upstream = await yuanbaoChat(cid, prompt, 'hunyuan_omnipotent_hy4', 'Adaptive', []);
   const { images } = await readSse(upstream);
   const urls = await enrichWatermarkFree(cid, images);
-  const n = Math.max(1, Math.min(body.n || 4, urls.length));
+  // 默认返回全部产物；显式传 n 时才按数量截断（向后兼容）
+  const n = body.n ? Math.max(1, Math.min(Number(body.n), urls.length)) : urls.length;
   let data = urls.slice(0, n);
   if (b64) {
     data = await Promise.all(data.map(async u => {
