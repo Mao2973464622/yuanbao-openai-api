@@ -1,6 +1,6 @@
-// 元宝 OpenAI 兼容服务：零依赖纯 Node，把元宝网页版变成 http://127.0.0.1:8788/v1
+// 元宝 OpenAI 兼容服务：零依赖纯 Node，把元宝网页版变成 http://127.0.0.1:8789/v1
 // 端点: /v1/models | /v1/chat/completions(流式/非流式) | /v1/images/generations | /v1/images/edits | /healthz
-// 环境变量: YUANBAO_PORT(默认8788) YUANBAO_API_KEY(可选，设置后校验 Bearer) YUANBAO_IMG_SAVE(可选，=1 生图自动下载到手机存储) YUANBAO_IMG_DIR(可选，默认 /sdcard/Download/yuanbao-img)
+// 环境变量: YUANBAO_PORT(默认8789) YUANBAO_API_KEY(可选，设置后校验 Bearer) YUANBAO_IMG_SAVE(可选，=1 生图自动下载到手机存储) YUANBAO_IMG_DIR(可选，默认 /sdcard/Download/yuanbao-img)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -8,7 +8,7 @@ const crypto = require('crypto');
 const { createSigner } = require('./qimei-standalone.js');
 
 const signer = createSigner();
-const PORT = process.env.YUANBAO_PORT || 8788;
+const PORT = process.env.YUANBAO_PORT || 8789;
 const API_KEY = process.env.YUANBAO_API_KEY || '';
 // 工具调用总开关：YUANBAO_TOOLS=off 关闭（提示词注入式模拟，关闭后请求带 tools 也会被忽略）
 const TOOLS_ENABLED = !/^off|0|false|no$/i.test(process.env.YUANBAO_TOOLS || '');
@@ -26,13 +26,6 @@ const cookie = JSON.parse(fs.readFileSync(process.env.YUANBAO_COOKIE
 
 // OpenAI 模型名 → 元宝内部 chatModelId（-search 后缀 = 强制联网搜索模式）
 const MODEL_ALIAS = {
-  'deepseek': 'deep_seek_v3',
-  'deepseek-v3': 'deep_seek_v3',
-  'deep_seek_v3': 'deep_seek_v3',
-  'hy3': 'hunyuan_gpt_175B_0404',
-  'hunyuan': 'hunyuan_gpt_175B_0404',
-  'hunyuan-t1': 'hunyuan_gpt_175B_0404',
-  'hunyuan_gpt_175B_0404': 'hunyuan_gpt_175B_0404',
   'hy4': 'hunyuan_omnipotent_hy4',
   'hunyuan_omnipotent_hy4': 'hunyuan_omnipotent_hy4',
 };
